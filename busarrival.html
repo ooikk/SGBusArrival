@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SG Bus Arrival Crawler</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+
+        .bus-card {
+            transition: all 0.2s ease;
+        }
+        
+        .bus-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        /* Operator Colors */
+        .op-sbst { border-left: 4px solid #8b5cf6; } /* Purple */
+        .op-smrt { border-left: 4px solid #ef4444; } /* Red */
+        .op-tts { border-left: 4px solid #10b981; }  /* Green */
+        .op-gas { border-left: 4px solid #f59e0b; }  /* Yellow */
+
+        /* Load Colors */
+        .load-sea { color: #10b981; } /* Seats Available - Green */
+        .load-sda { color: #f59e0b; } /* Standing Available - Yellow */
+        .load-lsd { color: #ef4444; } /* Limited Standing - Red */
+
+        .animate-pulse-slow {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .7; }
+        }
+    </style>
+</head>
+<body class="text-gray-800 min-h-screen flex flex-col items-center py-8 px-4">
+
+    <!-- Main Container -->
+    <div class="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden">
+        
+        <!-- Header -->
+        <div class="bg-slate-900 p-6 text-white">
+            <h1 class="text-2xl font-bold flex items-center gap-2">
+                <i class="fas fa-bus-alt"></i> SG Bus Arrival
+            </h1>
+            <p class="text-slate-400 text-sm mt-1">Real-time arrival timings</p>
+        </div>
+
+        <!-- Controls -->
+        <div class="p-6 bg-white border-b border-gray-100">
+            
+            <!-- API Key Toggle -->
+            <div class="mb-4">
+                <button onclick="toggleSettings()" class="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 focus:outline-none">
+                    <i class="fas fa-cog"></i> API Settings
+                </button>
+                <div id="settingsPanel" class="hidden mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200 text-sm">
+                    <label class="block text-gray-600 mb-1">LTA Account Key (Optional)</label>
+                    <input type="password" id="apiKeyInput" placeholder="Paste your LTA API Key here" 
+                        class="w-full px-3 py-2 border rounded text-gray-700 focus:outline-none focus:border-blue-500 mb-2">
+                    <div class="flex items-center gap-2 mt-2">
+                        <input type="checkbox" id="demoMode" class="rounded text-blue-600" checked onchange="handleDemoToggle()">
+                        <label for="demoMode" class="text-gray-600 cursor-pointer select-none">Use Demo Data (No Key needed)</label>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2 italic">
+                        * Note: To use a real API Key, you may need a browser extension to bypass CORS (Cross-Origin Resource Sharing) as the LTA API blocks direct browser requests.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Search Box -->
+            <div class="relative">
+                <input type="text" id="busStopInput" maxlength="5" placeholder="Enter Bus Stop Code (e.g. 83139)"
+                    class="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors text-lg font-medium tracking-wider"
+                    onkeypress="handleEnter(event)">
+                <i class="fas fa-search absolute left-4 top-4 text-gray-400"></i>
+                <button onclick="fetchArrivals()" 
+                    class="absolute right-2 top-2 bottom-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm transition-colors">
+                    Check
+                </button>
+            </div>
+            <div id="busStopDisplay" class="mt-2 text-sm text-gray-500 font-medium hidden">
+                Bus Stop: <span id="currentStopCode" class="text-gray-900"></span>
+            </div>
+        </div>
+
+        <!-- Results Area -->
+        <div id="resultsArea" class="bg-gray-50 min-h-[300px] p-4 space-y-3 relative">
+            
+            <!-- Empty State -->
+            <div id="emptyState" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 p-8 text-center">
+                <i class="fas fa-bus text-4xl mb-3 opacity-30"></i>
+                <p>Enter a bus stop code to see arrival times.</p>
+                <div class="mt-4 flex gap-2 text-xs">
+                    <span class="bg-gray-200 px-2 py-1 rounded cursor-pointer hover:bg-gray-300" onclick="fillExample('83139')">Ex: 83139</span>
+                    <span class="bg-gray-200 px-2 py-1 rounded cursor-pointer hover:bg-gray-300" onclick="fillExample('09048')">Ex: 09048</span>
+                </div>
+            </div>
+
+            <!-- Loading State -->
+            <div id="loader" class="hidden absolute inset-0 flex flex-col items-center justify-center bg-gray-50 z-10">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
+                <p class="text-sm text-gray-500">Fetching bus times...</p>
+            </div>
+
+            <!-- Error State -->
+            <div id="errorState" class="hidden p-4 bg-red-50 border border-red-100 rounded-lg text-red-600 text-sm text-center">
+                <p id="errorMessage">Error fetching data.</p>
+            </div>
+
+            <!-- List Container -->
+            <div id="busList" class="space-y-3 pb-4">
+                <!-- Bus items will be injected here -->
+            </div>
+
+        </div>
+
+        <!-- Footer -->
+        <div class="bg-white p-3 border-t text-center text-xs text-gray-400">
+            Data © LTA DataMall • <span id="lastUpdated">Updated: --</span>
+        </div>
+    </div>
+
+    <script>
+        // Constants
+        const LTA_API_URL = 'https://datamall2.mytransport.sg/ltaodataservice/v3/BusArrival';
+        
+        // DOM Elements
+        const busStopInput = document.getElementById('busStopInput');
+        const resultsArea = document.getElementById('resultsArea');
+        const busList = document.getElementById('busList');
+        const loader = document.getElementById('loader');
+        const emptyState = document.getElementById('emptyState');
+        const errorState = document.getElementById('errorState');
+        const errorMessage = document.getElementById('errorMessage');
+        const apiKeyInput = document.getElementById('apiKeyInput');
+        const demoModeCheckbox = document.getElementById('demoMode');
+        const settingsPanel = document.getElementById('settingsPanel');
+        const busStopDisplay = document.getElementById('busStopDisplay');
+        const currentStopCode = document.getElementById('currentStopCode');
+        const lastUpdated = document.getElementById('lastUpdated');
+
+        // State
+        let apiKey = localStorage.getItem('lta_api_key') || '';
+        if (apiKey) apiKeyInput.value = apiKey;
+
+        // --- Event Handlers ---
+
+        function toggleSettings() {
+            settingsPanel.classList.toggle('hidden');
+        }
+
+        function handleDemoToggle() {
+            // If demo is unchecked but no key, warn
+            if (!demoModeCheckbox.checked && !apiKeyInput.value) {
+                alert("Please enter a valid LTA API Key to use live data, or keep Demo Mode on.");
+            }
+        }
+
+        function handleEnter(event) {
+            if (event.key === 'Enter') fetchArrivals();
+        }
+
+        function fillExample(code) {
+            busStopInput.value = code;
+            fetchArrivals();
+        }
+
+        apiKeyInput.addEventListener('change', (e) => {
+            localStorage.setItem('lta_api_key', e.target.value);
+            apiKey = e.target.value;
+        });
+
+        // --- Core Logic ---
+
+        async function fetchArrivals() {
+            const code = busStopInput.value.trim();
+            if (!code) return;
+            if (code.length < 5) {
+                showError("Please enter a valid 5-digit Bus Stop Code.");
+                return;
+            }
+
+            // UI Updates
+            busList.innerHTML = '';
+            emptyState.classList.add('hidden');
+            errorState.classList.add('hidden');
+            loader.classList.remove('hidden');
+            busStopDisplay.classList.remove('hidden');
+            currentStopCode.textContent = code;
+
+            try {
+                let data;
+                
+                if (demoModeCheckbox.checked) {
+                    // Simulate network delay for realism
+                    await new Promise(resolve => setTimeout(resolve, 800));
+                    data = getMockData(code);
+                } else {
+                    if (!apiKey) throw new Error("API Key is missing. Please enable Demo Mode or provide a key.");
+                    
+                    // Fetch from API
+                    // Note: This usually fails in standard browsers due to CORS unless specific extensions are used
+                    const response = await fetch(`${LTA_API_URL}?BusStopCode=${code}`, {
+                        method: 'GET',
+                        headers: {
+                            'AccountKey': apiKey,
+                            'accept': 'application/json'
+                        }
+                    });
+
+                    if (!response.ok) {
+                        if (response.status === 401) throw new Error("Invalid API Key.");
+                        if (response.status === 403) throw new Error("Access Denied (CORS or Key).");
+                        throw new Error(`Error: ${response.status}`);
+                    }
+                    data = await response.json();
+                }
+
+                renderBusData(data);
+                updateLastUpdated();
+
+            } catch (err) {
+                console.error(err);
+                let msg = err.message;
+                if (err.name === 'TypeError' && err.message.includes('Failed to fetch')) {
+                    msg = "CORS Error: The browser blocked the request. Enable 'Demo Mode' or use a CORS extension.";
+                }
+                showError(msg);
+            } finally {
+                loader.classList.add('hidden');
+            }
+        }
+
+        function renderBusData(data) {
+            const services = data.Services || [];
+
+            if (services.length === 0) {
+                showError("No bus services found for this stop.");
+                return;
+            }
+
+            // Sort by Service Number (numeric then alphanumeric)
+            services.sort((a, b) => {
+                return a.ServiceNo.localeCompare(b.ServiceNo, undefined, { numeric: true, sensitivity: 'base' });
+            });
+
+            services.forEach(service => {
+                const operatorClass = getOperatorClass(service.Operator);
+                const nextBus = service.NextBus;
+                const nextBus2 = service.NextBus2;
+                const nextBus3 = service.NextBus3;
+
+                const card = document.createElement('div');
+                card.className = `bus-card bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex items-center justify-between ${operatorClass}`;
+                
+                card.innerHTML = `
+                    <div class="flex items-center gap-4">
+                        <div class="flex flex-col">
+                            <span class="text-2xl font-bold text-gray-800 tracking-tight">${service.ServiceNo}</span>
+                            <span class="text-[10px] font-bold tracking-wider text-gray-400 uppercase">${service.Operator}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="flex gap-2">
+                        ${renderTimingPill(nextBus, true)}
+                        ${renderTimingPill(nextBus2, false)}
+                        ${renderTimingPill(nextBus3, false)}
+                    </div>
+                `;
+                
+                busList.appendChild(card);
+            });
+        }
+
+        function renderTimingPill(busObj, isPrimary) {
+            if (!busObj || !busObj.EstimatedArrival) return '';
+
+            const arrivalTime = new Date(busObj.EstimatedArrival);
+            const now = new Date();
+            const diffMs = arrivalTime - now;
+            let diffMins = Math.floor(diffMs / 60000);
+
+            if (diffMins < -1) return ''; // Bus already left long ago
+            
+            let timeText = diffMins <= 0 ? 'Arr' : `${diffMins}`;
+            let unitText = diffMins <= 0 ? '' : '<span class="text-[10px]">min</span>';
+            
+            // Feature Icons
+            let icons = '';
+            if (busObj.Feature === 'WAB') icons += '<i class="fas fa-wheelchair text-[10px] ml-1 opacity-70"></i>';
+            if (busObj.Type === 'DD') icons += '<i class="fas fa-layer-group text-[10px] ml-1 opacity-70" title="Double Decker"></i>';
+
+            // Load Color
+            let loadClass = '';
+            switch(busObj.Load) {
+                case 'SEA': loadClass = 'bg-green-100 text-green-700 border-green-200'; break; // Seats Available
+                case 'SDA': loadClass = 'bg-yellow-100 text-yellow-700 border-yellow-200'; break; // Standing Available
+                case 'LSD': loadClass = 'bg-red-100 text-red-700 border-red-200'; break; // Limited Standing
+                default: loadClass = 'bg-gray-100 text-gray-600 border-gray-200';
+            }
+
+            // Primary pill is larger
+            const sizeClass = isPrimary ? 'px-3 py-2 text-lg' : 'px-2 py-2 text-sm opacity-60 hidden sm:flex'; // Hide 2nd/3rd bus on very small screens if needed, or keep
+            const displayClass = isPrimary ? 'flex' : 'hidden sm:flex'; 
+
+            return `
+                <div class="${displayClass} flex-col items-center justify-center rounded-lg border font-bold ${loadClass} ${sizeClass} min-w-[50px]">
+                    <div class="leading-none flex items-baseline gap-0.5">
+                        ${timeText} ${unitText}
+                    </div>
+                    <div class="mt-0.5 flex gap-1">
+                        ${icons}
+                    </div>
+                </div>
+            `;
+        }
+
+        function getOperatorClass(op) {
+            switch(op) {
+                case 'SBST': return 'op-sbst';
+                case 'SMRT': return 'op-smrt';
+                case 'TTS': return 'op-tts';
+                case 'GAS': return 'op-gas';
+                default: return 'border-l-4 border-gray-300';
+            }
+        }
+
+        function showError(msg) {
+            errorState.classList.remove('hidden');
+            errorMessage.textContent = msg;
+        }
+
+        function updateLastUpdated() {
+            const now = new Date();
+            lastUpdated.textContent = "Updated: " + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+
+        // --- Mock Data Generator for Demo Mode ---
+        function getMockData(code) {
+            // Generate deterministic but realistic looking data based on code
+            const now = new Date();
+            
+            // Helper to add minutes to current time
+            const addMins = (m) => new Date(now.getTime() + m * 60000).toISOString();
+
+            return {
+                "BusStopCode": code,
+                "Services": [
+                    {
+                        "ServiceNo": "12",
+                        "Operator": "GAS",
+                        "NextBus": { "EstimatedArrival": addMins(1), "Load": "SEA", "Feature": "WAB", "Type": "DD" },
+                        "NextBus2": { "EstimatedArrival": addMins(14), "Load": "SEA", "Feature": "WAB", "Type": "DD" },
+                        "NextBus3": { "EstimatedArrival": addMins(25), "Load": "SDA", "Feature": "WAB", "Type": "SD" }
+                    },
+                    {
+                        "ServiceNo": "147",
+                        "Operator": "SBST",
+                        "NextBus": { "EstimatedArrival": addMins(0), "Load": "LSD", "Feature": "WAB", "Type": "DD" },
+                        "NextBus2": { "EstimatedArrival": addMins(8), "Load": "SEA", "Feature": "WAB", "Type": "DD" },
+                        "NextBus3": { "EstimatedArrival": addMins(19), "Load": "SEA", "Feature": "WAB", "Type": "DD" }
+                    },
+                    {
+                        "ServiceNo": "190",
+                        "Operator": "SMRT",
+                        "NextBus": { "EstimatedArrival": addMins(5), "Load": "SDA", "Feature": "WAB", "Type": "BD" },
+                        "NextBus2": { "EstimatedArrival": addMins(9), "Load": "SEA", "Feature": "WAB", "Type": "BD" },
+                        "NextBus3": { "EstimatedArrival": addMins(15), "Load": "SEA", "Feature": "WAB", "Type": "BD" }
+                    },
+                    {
+                        "ServiceNo": "970",
+                        "Operator": "SMRT",
+                        "NextBus": { "EstimatedArrival": addMins(12), "Load": "SEA", "Feature": "WAB", "Type": "SD" },
+                        "NextBus2": { "EstimatedArrival": addMins(22), "Load": "SEA", "Feature": "WAB", "Type": "SD" },
+                        "NextBus3": { "EstimatedArrival": addMins(35), "Load": "SEA", "Feature": "WAB", "Type": "SD" }
+                    },
+                    {
+                        "ServiceNo": "51",
+                        "Operator": "SBST",
+                        "NextBus": { "EstimatedArrival": addMins(2), "Load": "SEA", "Feature": "", "Type": "DD" },
+                        "NextBus2": { "EstimatedArrival": addMins(18), "Load": "SEA", "Feature": "WAB", "Type": "DD" },
+                        "NextBus3": { "EstimatedArrival": addMins(30), "Load": "SDA", "Feature": "WAB", "Type": "DD" }
+                    }
+                ]
+            };
+        }
+
+        // Initialize with focus
+        busStopInput.focus();
+    </script>
+</body>
+</html>
