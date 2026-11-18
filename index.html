@@ -90,8 +90,14 @@
                     Check
                 </button>
             </div>
-            <div id="busStopDisplay" class="mt-2 text-sm text-gray-500 font-medium hidden">
-                Bus Stop: <span id="currentStopCode" class="text-gray-900"></span>
+            <div class="mt-2 flex items-center justify-between gap-2">
+                <div id="busStopDisplay" class="text-sm text-gray-500 font-medium hidden">
+                    Bus Stop: <span id="currentStopCode" class="text-gray-900"></span>
+                </div>
+                <button onclick="refreshCurrent()"
+                    class="ml-auto px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-xs transition-colors flex items-center gap-1">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
             </div>
         </div>
 
@@ -191,6 +197,19 @@
             { code: '75251', Description: 'Opp Tropica Condo', RoadName: 'Tampines Ave 1', Latitude: 1.3494983330038, Longitude: 103.92783361101397 },
         ];
 
+        // What is currently on screen, so Refresh re-fetches the same view.
+        let currentView = 'defaults';
+        let currentCode = '';
+
+        function refreshCurrent() {
+            if (currentView === 'single' && currentCode) {
+                busStopInput.value = currentCode;
+                fetchArrivals();
+            } else {
+                loadDefaults();
+            }
+        }
+
         async function fetchStopData(code) {
             if (demoModeCheckbox.checked) {
                 await new Promise(resolve => setTimeout(resolve, 800));
@@ -249,6 +268,8 @@
         }
 
         async function loadDefaults() {
+            currentView = 'defaults';
+            currentCode = '';
             busList.innerHTML = '';
             emptyState.classList.add('hidden');
             errorState.classList.add('hidden');
@@ -273,6 +294,8 @@
                 showError("Please enter a valid 5-digit Bus Stop Code.");
                 return;
             }
+            currentView = 'single';
+            currentCode = code;
 
             busList.innerHTML = '';
             emptyState.classList.add('hidden');
