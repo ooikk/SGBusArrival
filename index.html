@@ -74,7 +74,7 @@
                         <label for="demoMode" class="text-gray-600 cursor-pointer select-none">Use Demo Data (No Key needed)</label>
                     </div>
                     <p class="text-xs text-gray-500 mt-2 italic">
-                        * Note: To use a real API Key, you may need a browser extension to bypass CORS (Cross-Origin Resource Sharing) as the LTA API blocks direct browser requests.
+                        * Note: Live data goes through this site's own server, so no browser extension or API key is needed here.
                     </p>
                 </div>
             </div>
@@ -134,7 +134,7 @@
 
     <script>
         // Constants
-        const LTA_API_URL = 'https://datamall2.mytransport.sg/ltaodataservice/v3/BusArrival';
+        const LTA_API_URL = '/api/bus-arrival'; // same-origin Vercel proxy — no CORS, no key in the browser
         
         // DOM Elements
         const busStopInput = document.getElementById('busStopInput');
@@ -152,7 +152,7 @@
         const lastUpdated = document.getElementById('lastUpdated');
 
         // State
-        let apiKey = localStorage.getItem('lta_api_key') || 'kQk30HTaQ3WymXga5b2OnQ==';
+        let apiKey = localStorage.getItem('lta_api_key') || ''; // no longer used for live data; the key lives on the server
         if (apiKey) apiKeyInput.value = apiKey;
 
         // --- Event Handlers ---
@@ -208,16 +208,13 @@
                     await new Promise(resolve => setTimeout(resolve, 800));
                     data = getMockData(code);
                 } else {
-                    if (!apiKey) throw new Error("API Key is missing. Please enable Demo Mode or provide a key.");
                     
-                    // Fetch from API
-                    // Note: This usually fails in standard browsers due to CORS unless specific extensions are used
+                    // Fetch via the site's own server (api/bus-arrival.js), which
+                    // calls LTA with the key kept on the server. The browser
+                    // never talks to LTA directly, so there is no CORS block.
                     const response = await fetch(`${LTA_API_URL}?BusStopCode=${code}`, {
                         method: 'GET',
-                        headers: {
-                            'AccountKey': apiKey,
-                            'accept': 'application/json'
-                        }
+                        headers: { 'accept': 'application/json' }
                     });
 
                     if (!response.ok) {
