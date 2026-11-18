@@ -70,7 +70,7 @@
                     <input type="password" id="apiKeyInput" placeholder="Paste your LTA API Key here" 
                         class="w-full px-3 py-2 border rounded text-gray-700 focus:outline-none focus:border-blue-500 mb-2">
                     <div class="flex items-center gap-2 mt-2">
-                        <input type="checkbox" id="demoMode" class="rounded text-blue-600" checked onchange="handleDemoToggle()">
+                        <input type="checkbox" id="demoMode" class="rounded text-blue-600" onchange="handleDemoToggle()">
                         <label for="demoMode" class="text-gray-600 cursor-pointer select-none">Use Demo Data (No Key needed)</label>
                     </div>
                     <p class="text-xs text-gray-500 mt-2 italic">
@@ -101,10 +101,10 @@
             <!-- Empty State -->
             <div id="emptyState" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 p-8 text-center">
                 <i class="fas fa-bus text-4xl mb-3 opacity-30"></i>
-                <p>Enter a bus stop code to see arrival times.</p>
+                <p>Your default stops load automatically — or enter another stop code above.</p>
                 <div class="mt-4 flex gap-2 text-xs">
-                    <span class="bg-gray-200 px-2 py-1 rounded cursor-pointer hover:bg-gray-300" onclick="fillExample('83139')">Ex: 83139</span>
-                    <span class="bg-gray-200 px-2 py-1 rounded cursor-pointer hover:bg-gray-300" onclick="fillExample('09048')">Ex: 09048</span>
+                    <span class="bg-gray-200 px-2 py-1 rounded cursor-pointer hover:bg-gray-300" onclick="fillExample('75259')">75259 Tropica Condo</span>
+                    <span class="bg-gray-200 px-2 py-1 rounded cursor-pointer hover:bg-gray-300" onclick="fillExample('75251')">75251 Opp Tropica Condo</span>
                 </div>
             </div>
 
@@ -184,6 +184,88 @@
 
         // --- Core Logic ---
 
+        // Your two default stops: Tropica Condo and the stop opposite it,
+        // both on Tampines Ave 1. Shown automatically when the page opens.
+        const DEFAULT_STOPS = [
+            { code: '75259', Description: 'Tropica Condo', RoadName: 'Tampines Ave 1', Latitude: 1.34913805600656, Longitude: 103.92798027801848 },
+            { code: '75251', Description: 'Opp Tropica Condo', RoadName: 'Tampines Ave 1', Latitude: 1.3494983330038, Longitude: 103.92783361101397 },
+        ];
+
+        async function fetchStopData(code) {
+            if (demoModeCheckbox.checked) {
+                await new Promise(resolve => setTimeout(resolve, 800));
+                const data = getMockData(code);
+                data.stop = DEFAULT_STOPS.find(s => s.code === code) || null;
+                return data;
+            }
+            const response = await fetch(`${LTA_API_URL}?BusStopCode=${code}`, {
+                method: 'GET',
+                headers: { 'accept': 'application/json' }
+            });
+            if (!response.ok) {
+                if (response.status === 401) throw new Error("Invalid API Key.");
+                if (response.status === 403) throw new Error("Access Denied (CORS or Key).");
+                throw new Error(`Error: ${response.status}`);
+            }
+            return response.json();
+        }
+
+        function renderStopSection(data, fallbackStop) {
+            const stop = data.stop || fallbackStop || null;
+            const code = data.BusStopCode || (fallbackStop && fallbackStop.code) || '';
+            const section = document.createElement('div');
+            section.className = 'space-y-3 pb-2';
+
+            const title = stop ? stop.Description : ('Bus Stop ' + code);
+            const road = stop ? stop.RoadName : '';
+            const mapUrl = stop && stop.Latitude
+                ? `https://www.google.com/maps/search/?api=1&query=${stop.Latitude},${stop.Longitude}`
+                : `https://www.google.com/maps/search/?api=1&query=Singapore+bus+stop+${code}`;
+
+            const header = document.createElement('div');
+            header.className = 'pt-1';
+            header.innerHTML = `
+                <div class="flex items-baseline justify-between gap-2">
+                    <h2 class="text-base font-bold text-gray-800">${title}</h2>
+                    <span class="text-xs text-gray-400 font-medium whitespace-nowrap">${code}</span>
+                </div>
+                <div class="flex items-center justify-between gap-2 mt-0.5">
+                    <p class="text-xs text-gray-500">${road}</p>
+                    <a href="${mapUrl}" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:text-blue-800 font-medium whitespace-nowrap">View on Map &rsaquo;</a>
+                </div>
+            `;
+            section.appendChild(header);
+
+            const list = document.createElement('div');
+            list.className = 'space-y-3';
+            section.appendChild(list);
+
+            if (data.error) {
+                list.innerHTML = `<div class="p-4 bg-red-50 border border-red-100 rounded-lg text-red-600 text-sm text-center">${data.error}</div>`;
+            } else {
+                renderBusData(data, list);
+            }
+            busList.appendChild(section);
+        }
+
+        async function loadDefaults() {
+            busList.innerHTML = '';
+            emptyState.classList.add('hidden');
+            errorState.classList.add('hidden');
+            loader.classList.remove('hidden');
+            busStopDisplay.classList.remove('hidden');
+            currentStopCode.textContent = DEFAULT_STOPS.map(s => s.code).join(' \u2022 ');
+            try {
+                const results = await Promise.all(
+                    DEFAULT_STOPS.map(s => fetchStopData(s.code).catch(err => ({ BusStopCode: s.code, error: err.message, stop: s })))
+                );
+                results.forEach((data, i) => renderStopSection(data, DEFAULT_STOPS[i]));
+                updateLastUpdated();
+            } finally {
+                loader.classList.add('hidden');
+            }
+        }
+
         async function fetchArrivals() {
             const code = busStopInput.value.trim();
             if (!code) return;
@@ -192,7 +274,6 @@
                 return;
             }
 
-            // UI Updates
             busList.innerHTML = '';
             emptyState.classList.add('hidden');
             errorState.classList.add('hidden');
@@ -201,38 +282,18 @@
             currentStopCode.textContent = code;
 
             try {
-                let data;
-                
-                if (demoModeCheckbox.checked) {
-                    // Simulate network delay for realism
-                    await new Promise(resolve => setTimeout(resolve, 800));
-                    data = getMockData(code);
+                const data = await fetchStopData(code);
+                if (data.error) {
+                    showError(data.error);
                 } else {
-                    
-                    // Fetch via the site's own server (api/bus-arrival.js), which
-                    // calls LTA with the key kept on the server. The browser
-                    // never talks to LTA directly, so there is no CORS block.
-                    const response = await fetch(`${LTA_API_URL}?BusStopCode=${code}`, {
-                        method: 'GET',
-                        headers: { 'accept': 'application/json' }
-                    });
-
-                    if (!response.ok) {
-                        if (response.status === 401) throw new Error("Invalid API Key.");
-                        if (response.status === 403) throw new Error("Access Denied (CORS or Key).");
-                        throw new Error(`Error: ${response.status}`);
-                    }
-                    data = await response.json();
+                    renderStopSection(data, null);
                 }
-
-                renderBusData(data);
                 updateLastUpdated();
-
             } catch (err) {
                 console.error(err);
                 let msg = err.message;
                 if (err.name === 'TypeError' && err.message.includes('Failed to fetch')) {
-                    msg = "CORS Error: The browser blocked the request. Enable 'Demo Mode' or use a CORS extension.";
+                    msg = "Could not reach the server. Check your connection and try again.";
                 }
                 showError(msg);
             } finally {
@@ -240,11 +301,11 @@
             }
         }
 
-        function renderBusData(data) {
+        function renderBusData(data, listEl) {
             const services = data.Services || [];
 
             if (services.length === 0) {
-                showError("No bus services found for this stop.");
+                listEl.innerHTML = '<div class="p-4 bg-white border border-gray-100 rounded-lg text-gray-500 text-sm text-center">No bus services found for this stop.</div>';
                 return;
             }
 
@@ -277,7 +338,7 @@
                     </div>
                 `;
                 
-                busList.appendChild(card);
+                listEl.appendChild(card);
             });
         }
 
@@ -394,8 +455,8 @@
             };
         }
 
-        // Initialize with focus
-        busStopInput.focus();
+        // Load your two default stops on open
+        loadDefaults();
     </script>
 </body>
 </html>
