@@ -344,7 +344,7 @@
                 const nextBus3 = service.NextBus3;
 
                 const card = document.createElement('div');
-                card.className = `bus-card bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex items-center gap-4 ${operatorClass}`;
+                card.className = `bus-card bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex items-center gap-3 ${operatorClass}`;
                 
                 card.innerHTML = `
                     <div class="flex items-center gap-4">
@@ -354,7 +354,7 @@
                         </div>
                     </div>
                     
-                    <div class="flex gap-2">
+                    <div class="flex flex-wrap gap-1.5">
                         ${renderTimingPill(nextBus, true)}
                         ${renderTimingPill(nextBus2, false)}
                         ${renderTimingPill(nextBus3, false)}
@@ -392,9 +392,9 @@
                 default: loadClass = 'bg-gray-100 text-gray-600 border-gray-200';
             }
 
-            // Primary pill is larger
-            const sizeClass = isPrimary ? 'px-3 py-2 text-lg' : 'px-2 py-2 text-sm opacity-60 hidden sm:flex'; // Hide 2nd/3rd bus on very small screens if needed, or keep
-            const displayClass = isPrimary ? 'flex' : 'hidden sm:flex'; 
+            // Primary pill is larger; all three show in portrait too
+            const sizeClass = isPrimary ? 'px-3 py-2 text-lg' : 'px-2 py-2 text-sm opacity-60';
+            const displayClass = 'flex';
 
             return `
                 <div class="${displayClass} flex-col items-center justify-center rounded-lg border font-bold ${loadClass} ${sizeClass} min-w-[50px]">
